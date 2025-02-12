@@ -1,11 +1,3 @@
-import os
-PATH = 'D://company_projects/lawGPT/final_lawgpt/cache/'
-os.environ['TRANSFORMERS_CACHE'] = PATH
-os.environ['HF_HOME'] = PATH
-os.environ['HF_DATASETS_CACHE'] = PATH
-os.environ['TORCH_HOME'] = PATH
-from huggingface_hub import login
-login(token='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')
 import streamlit as st
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -23,10 +15,7 @@ from langdetect import detect
 from deep_translator import GoogleTranslator
 from datetime import datetime
 from streamlit_js_eval import streamlit_js_eval
-import os
-# set HF_HOME=D://company_projects/lawGPT/final_lawgpt/cache/
-os.environ['HF_HOME'] = 'D://company_projects/lawGPT/final_lawgpt/cache/'
-os.environ["TRANSFORMERS_CACHE"] = "D://company_projects/lawGPT/final_lawgpt/cache/"
+
 def set_cookie(name, value):
     streamlit_js_eval(js_expressions=f"document.cookie = '{name}={value}; path=/'")
 
@@ -60,7 +49,7 @@ st.markdown(
 )
 
 # Custom prompt template
-PROMPT_TEMPLATE = """<s>[INST] <<SYS>>
+PROMPT_TEMPLATE = """<|im_start|>system
 You are a legal assistant specializing in Indian Law and court jurisdictions. Your role is to:
 1. Analyze case details and determine which court has jurisdiction
 2. Explain the reasoning behind the court selection
@@ -75,29 +64,28 @@ When analyzing jurisdiction:
 - For constitutional matters: Check if fundamental rights or constitutional issues are involved
 
 If the provided case details are insufficient, specify what additional information is needed to determine jurisdiction accurately.
-<</SYS>>
-
+<|im_end|>
+<|im_start|>user
 Context: {context}
 
-Question: {question} [/INST]
-
-Based on the provided case details and legal context, let me analyze the jurisdiction:</s>
+Question: {question}
+<|im_end|>
+<|im_start|>assistant
+Based on the provided case details and legal context, let me analyze the jurisdiction:
 """
 
 @st.cache_resource
 def initialize_llm():
     """Initialize the language model"""
     try:
-        # Using Llama-2-7b model to reduce memory requirements
-        repo_id = "meta-llama/Llama-2-7b-chat-hf"
+        # Using a smaller model that works well on CPU
+        repo_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         
-        # Load the model with 8-bit quantization
+        # Load the model with CPU configuration
         model = AutoModelForCausalLM.from_pretrained(
             repo_id,
-            device_map="auto",
-            load_in_8bit=True,  # Enable 8-bit quantization
+            device_map="cpu",
             torch_dtype=torch.float32,
-            low_cpu_mem_usage=True,
         )
         
         # Load tokenizer
@@ -117,6 +105,7 @@ def initialize_llm():
             temperature=0.3,  # Reduced temperature for more focused responses
             top_p=0.85,      # Adjusted for better coherence
             repetition_penalty=1.2,
+            # device="cpu",
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             do_sample=True,
@@ -433,24 +422,28 @@ def handle_legal_query(query: str, qa_chain, conversation_history: List[Dict]) -
         # Detect language
         lang = detect_language(query)
         
-        # Translate query to English if in Malayalam
+        # If query is in Malayalam, translate to English for processing
         if lang == 'ml':
-            query = translate_response(query, 'en')
+            eng_query = translate_response(query, 'en')
+        else:
+            eng_query = query
         
         # Get conversation context
         context = get_conversation_context(conversation_history)
         
-        # Check if it's a follow-up question
-        if is_followup_question(query) and context:
-            # Append context to the query
-            query = f"{context}\n\nFollow-up question: {query}"
+        # If it's a follow-up, include previous context
+        if is_followup_question(eng_query) and context:
+            query_with_context = f"Previous context: {context}\nQuestion: {eng_query}\nPlease give a simple, 2-3 line answer that anyone can understand."
+        else:
+            query_with_context = f"Question: {eng_query}\nPlease give a simple, 2-3 line answer that anyone can understand."
         
         # Get response from QA chain
-        result = qa_chain({"query": query})
+        result = qa_chain({"query": query_with_context})
         response = result.get('result', "I'm sorry, I couldn't understand that. Could you ask in simpler words?")
         
         # Clean up the response
-        response = response.replace("[/INST]", "").replace("<s>", "").replace("</s>", "")
+        response = response.replace("<|im_start|>", "").replace("<|im_end|>", "")
+        response = response.replace("[INST]", "").replace("[/INST]", "")
         response = response.strip()
         
         # Ensure response is concise
