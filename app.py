@@ -5,7 +5,8 @@ os.environ['HF_HOME'] = PATH
 os.environ['HF_DATASETS_CACHE'] = PATH
 os.environ['TORCH_HOME'] = PATH
 from huggingface_hub import login
-login(token='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')
+from os import environ
+login(token=environ['HF_API_TOKEN'])
 import streamlit as st
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
