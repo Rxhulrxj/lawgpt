@@ -25,9 +25,7 @@ from deep_translator import GoogleTranslator
 from datetime import datetime
 from streamlit_js_eval import streamlit_js_eval
 import os
-# set HF_HOME=D://company_projects/lawGPT/final_lawgpt/cache/
-os.environ['HF_HOME'] = 'D://company_projects/lawGPT/final_lawgpt/cache/'
-os.environ["TRANSFORMERS_CACHE"] = "D://company_projects/lawGPT/final_lawgpt/cache/"
+
 def set_cookie(name, value):
     streamlit_js_eval(js_expressions=f"document.cookie = '{name}={value}; path=/'")
 
