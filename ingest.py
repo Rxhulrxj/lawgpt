@@ -52,10 +52,10 @@ def main():
         with st.spinner("Processing documents..."):
             try:
                 # Create docs directory if it doesn't exist
-                os.makedirs(docs_dir, exist_ok=True)
+                os.makedirs(os.path.join(os.getcwd(),"lawgpt", docs_dir), exist_ok=True)
                 
                 # Check if directory is empty
-                if not os.listdir(docs_dir):
+                if not os.listdir(os.path.join(os.getcwd(),"lawgpt", docs_dir)):
                     st.warning(f"The directory '{docs_dir}' is empty. Please add your documents first.")
                     return
                 

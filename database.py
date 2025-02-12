@@ -6,7 +6,7 @@ from datetime import datetime
 
 class Database:
     def __init__(self, db_file: str = "legal_assistant.db"):
-        self.db_file = db_file
+        self.db_file = os.path.join(os.getcwd(), "lawgpt",db_file)
         self.init_db()
     
     def get_db_connection(self):

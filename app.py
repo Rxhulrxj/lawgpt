@@ -90,12 +90,12 @@ def initialize_llm():
         # Using Llama-2-7b model to reduce memory requirements
         repo_id = "meta-llama/Llama-2-7b-chat-hf"
         
-        # Load the model with 8-bit quantization
+        # Load the model with 4-bit quantization
         model = AutoModelForCausalLM.from_pretrained(
             repo_id,
             device_map="auto",
-            load_in_8bit=True,  # Enable 8-bit quantization
-            torch_dtype=torch.float32,
+            load_in_4bit=True,  # Use 4-bit quantization instead of 8-bit
+            torch_dtype=torch.bfloat16,  # Use bfloat16 for better numerical stability
             low_cpu_mem_usage=True,
         )
         
@@ -107,19 +107,20 @@ def initialize_llm():
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "left"
         
-        # Create pipeline with proper chat formatting
+        # Create pipeline with proper chat formatting and reduced batch size
         pipe = pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
             max_new_tokens=512,
-            temperature=0.3,  # Reduced temperature for more focused responses
-            top_p=0.85,      # Adjusted for better coherence
+            temperature=0.3,
+            top_p=0.85,
             repetition_penalty=1.2,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             do_sample=True,
-            return_full_text=False
+            return_full_text=False,
+            batch_size=1  # Reduce batch size to minimize memory usage
         )
         
         # Create LangChain wrapper
@@ -131,6 +132,10 @@ def initialize_llm():
         
     except Exception as e:
         st.error(f"Error initializing LLM: {str(e)}")
+        if "CUDA out of memory" in str(e):
+            st.error("GPU memory insufficient. Try closing other applications or reducing model size.")
+        elif "cublasLt" in str(e):
+            st.error("CUDA operation failed. This might be due to memory fragmentation. Try restarting the application.")
         return None
 
 @st.cache_resource
@@ -149,9 +154,9 @@ def initialize_qa_chain():
         )
         
         # Initialize vector store
-        if os.path.exists("vectorstore"):
+        if os.path.exists(os.path.join(os.getcwd(),"lawgpt", "vectorstore")):
             vectorstore = Chroma(
-                persist_directory="vectorstore",
+                persist_directory=os.path.join(os.getcwd(),"lawgpt", "vectorstore"),
                 embedding_function=embeddings
             )
         else:
@@ -474,6 +479,450 @@ def handle_legal_query(query: str, qa_chain, conversation_history: List[Dict]) -
         print(f"Error processing query: {str(e)}")
         error_msg = "ക്ഷമിക്കണം, ദയവായി വീണ്ടും ചോദിക്കാമോ?\n\nSorry, could you ask that again?"
         return error_msg
+
+def get_courts_by_location_and_type(location: str, case_type: str) -> Dict[str, List[str]]:
+    """Get available courts based on location and case type"""
+    courts = {}
+    
+    # Define courts by location
+    location_courts = {
+        'Chennai': {
+            'criminal': {
+                'Magistrate Courts': [
+                    'Chief Metropolitan Magistrate Court, Egmore',
+                    'Metropolitan Magistrate Court, George Town',
+                    'Metropolitan Magistrate Court, Saidapet'
+                ],
+                'Sessions Courts': [
+                    'Principal Sessions Court, Chennai',
+                    'Additional Sessions Court, Chennai',
+                    'Special Court for CBI Cases'
+                ]
+            },
+            'civil': {
+                'Civil Courts': [
+                    'City Civil Court, Chennai',
+                    'Small Causes Court, Chennai',
+                    'District Court, Chennai'
+                ],
+                'High Court': [
+                    'Madras High Court'
+                ]
+            },
+            'consumer': {
+                'Consumer Courts': [
+                    'District Consumer Disputes Redressal Forum, Chennai',
+                    'State Consumer Disputes Redressal Commission, Chennai'
+                ]
+            },
+            'family': {
+                'Family Courts': [
+                    'Family Court, Chennai',
+                    'Additional Family Court, Chennai'
+                ]
+            }
+        },
+        'Mumbai': {
+            'criminal': {
+                'Magistrate Courts': [
+                    'Chief Metropolitan Magistrate Court, Fort',
+                    'Metropolitan Magistrate Court, Bandra',
+                    'Metropolitan Magistrate Court, Andheri'
+                ],
+                'Sessions Courts': [
+                    'Sessions Court, Mumbai',
+                    'Special Court for NDPS Cases',
+                    'Special CBI Court'
+                ]
+            },
+            'civil': {
+                'Civil Courts': [
+                    'City Civil Court, Mumbai',
+                    'Small Causes Court, Mumbai',
+                    'District Court, Mumbai'
+                ],
+                'High Court': [
+                    'Bombay High Court'
+                ]
+            },
+            'consumer': {
+                'Consumer Courts': [
+                    'District Consumer Forum, Mumbai',
+                    'State Consumer Commission, Mumbai'
+                ]
+            },
+            'family': {
+                'Family Courts': [
+                    'Family Court, Mumbai',
+                    'Additional Family Court, Bandra'
+                ]
+            }
+        },
+        'Delhi': {
+            'criminal': {
+                'Magistrate Courts': [
+                    'Chief Metropolitan Magistrate Court',
+                    'Metropolitan Magistrate Court',
+                    'Judicial Magistrate First Class'
+                ],
+                'Sessions Courts': [
+                    'Sessions Court',
+                    'Special Criminal Court'
+                ]
+            },
+            'civil': {
+                'Civil Courts': [
+                    'District Court',
+                    'Small Causes Court',
+                    'City Civil Court'
+                ],
+                'High Court': [
+                    'Delhi High Court'
+                ]
+            },
+            'consumer': {
+                'Consumer Courts': [
+                    'District Consumer Forum',
+                    'State Consumer Commission'
+                ]
+            },
+            'family': {
+                'Family Courts': [
+                    'Family Court, Delhi',
+                    'Additional Family Court'
+                ]
+            }
+        },
+        'Kerala': {
+            'criminal': {
+                'Magistrate Courts': [
+                    'Chief Judicial Magistrate Court, Ernakulam',
+                    'Judicial First Class Magistrate Court, Ernakulam',
+                    'Judicial First Class Magistrate Court, Thiruvananthapuram'
+                ],
+                'Sessions Courts': [
+                    'Sessions Court, Ernakulam',
+                    'Sessions Court, Thiruvananthapuram',
+                    'Special Court for NDPS Cases'
+                ]
+            },
+            'civil': {
+                'Civil Courts': [
+                    'District Court, Ernakulam',
+                    'District Court, Thiruvananthapuram',
+                    'District Court, Kozhikode'
+                ],
+                'High Court': [
+                    'High Court of Kerala, Ernakulam'
+                ]
+            },
+            'consumer': {
+                'Consumer Courts': [
+                    'District Consumer Disputes Redressal Forum, Ernakulam',
+                    'State Consumer Disputes Redressal Commission, Ernakulam'
+                ]
+            },
+            'family': {
+                'Family Courts': [
+                    'Family Court, Ernakulam',
+                    'Family Court, Thiruvananthapuram',
+                    'Family Court, Kozhikode'
+                ]
+            }
+        }
+    }
+    
+    # Get courts for the specified location and case type
+    if location in location_courts and case_type:
+        case_type = case_type.lower()
+        if case_type in location_courts[location]:
+            return location_courts[location][case_type]
+    
+    return courts
+def get_advocates_by_location(location: str) -> List[Dict]:
+    """Get available advocates based on location"""
+    advocates_by_location = {
+        'Chennai': {
+            'criminal': [
+                {
+                    'name': 'Adv. Rajesh Kumar',
+                    'specialization': 'Criminal Defense',
+                    'experience': '15 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Lakshmi Narayan',
+                    'specialization': 'Criminal Law',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Priya Raman',
+                    'specialization': 'Civil Litigation',
+                    'experience': '12 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Senthil Kumar',
+                    'specialization': 'Property Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'consumer': [
+                {
+                    'name': 'Adv. Meena Krishnan',
+                    'specialization': 'Consumer Protection',
+                    'experience': '10 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'family': [
+                {
+                    'name': 'Adv. Sudha Raghavan',
+                    'specialization': 'Family Law',
+                    'experience': '16 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Mumbai': {
+            'criminal': [
+                {
+                    'name': 'Adv. Prakash Shah',
+                    'specialization': 'Criminal Defense',
+                    'experience': '22 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Anjali Desai',
+                    'specialization': 'Civil Law',
+                    'experience': '15 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Delhi': {
+            'criminal': [
+                {
+                    'name': 'Adv. Mohammed Ali',
+                    'specialization': 'Criminal Defense',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Sarah Thomas',
+                    'specialization': 'Criminal Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Kerala': {
+            'criminal': [
+                {
+                    'name': 'Adv. Suresh Kumar',
+                    'specialization': 'Criminal Defense',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Ramesh Nair',
+                    'specialization': 'Criminal Law',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Sreedevi Pillai',
+                    'specialization': 'Civil Litigation',
+                    'experience': '12 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Sreekumar Menon',
+                    'specialization': 'Property Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'consumer': [
+                {
+                    'name': 'Adv. Sreekala Sreedharan',
+                    'specialization': 'Consumer Protection',
+                    'experience': '10 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'family': [
+                {
+                    'name': 'Adv. Sreedevi Sreedharan',
+                    'specialization': 'Family Law',
+                    'experience': '16 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        }
+    }
+    
+    if location in advocates_by_location:
+        return advocates_by_location[location]
+    
+    return []
+def get_advocates_by_specialization(court_type: str, case_type: str, location: str) -> List[Dict]:
+    """Get available advocates based on specialization and court type"""
+    advocates_by_location = {
+        'Chennai': {
+            'criminal': [
+                {
+                    'name': 'Adv. Rajesh Kumar',
+                    'specialization': 'Criminal Defense',
+                    'experience': '15 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Lakshmi Narayan',
+                    'specialization': 'Criminal Law',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Priya Raman',
+                    'specialization': 'Civil Litigation',
+                    'experience': '12 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Senthil Kumar',
+                    'specialization': 'Property Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'consumer': [
+                {
+                    'name': 'Adv. Meena Krishnan',
+                    'specialization': 'Consumer Protection',
+                    'experience': '10 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'family': [
+                {
+                    'name': 'Adv. Sudha Raghavan',
+                    'specialization': 'Family Law',
+                    'experience': '16 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Mumbai': {
+            'criminal': [
+                {
+                    'name': 'Adv. Prakash Shah',
+                    'specialization': 'Criminal Defense',
+                    'experience': '22 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Anjali Desai',
+                    'specialization': 'Civil Law',
+                    'experience': '15 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Delhi': {
+            'criminal': [
+                {
+                    'name': 'Adv. Mohammed Ali',
+                    'specialization': 'Criminal Defense',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Sarah Thomas',
+                    'specialization': 'Criminal Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        },
+        'Kerala': {
+            'criminal': [
+                {
+                    'name': 'Adv. Suresh Kumar',
+                    'specialization': 'Criminal Defense',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Ramesh Nair',
+                    'specialization': 'Criminal Law',
+                    'experience': '20 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'civil': [
+                {
+                    'name': 'Adv. Sreedevi Pillai',
+                    'specialization': 'Civil Litigation',
+                    'experience': '12 years',
+                    'contact': '+91-XXXXXXXXXX'
+                },
+                {
+                    'name': 'Adv. Sreekumar Menon',
+                    'specialization': 'Property Law',
+                    'experience': '18 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'consumer': [
+                {
+                    'name': 'Adv. Sreekala Sreedharan',
+                    'specialization': 'Consumer Protection',
+                    'experience': '10 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ],
+            'family': [
+                {
+                    'name': 'Adv. Sreedevi Sreedharan',
+                    'specialization': 'Family Law',
+                    'experience': '16 years',
+                    'contact': '+91-XXXXXXXXXX'
+                }
+            ]
+        }
+    }
+    
+    if location in advocates_by_location and case_type:
+        case_type = case_type.lower()
+        return advocates_by_location[location].get(case_type, [])
+    
+    return []
+
+def init_session_state():
+    """Initialize session state variables"""
+    if 'user' not in st.session_state:
+        st.session_state.user = None
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 'login'
+
+def load_user_chat_history():
+    """Load chat history for the current user"""
+    if st.session_state.user:
+        messages = db.get_user_chat_history(st.session_state.user['id'])
+        st.session_state.messages = messages
 
 def get_courts_by_location_and_type(location: str, case_type: str) -> Dict[str, List[str]]:
     """Get available courts based on location and case type"""
